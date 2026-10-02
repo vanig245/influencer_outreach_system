@@ -3,7 +3,9 @@ import sys
 import pandas as pd
 from groq import Groq
 from dotenv import load_dotenv
+import concurrent.futures
 
+# Add root directory to path
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import config
 
@@ -36,55 +38,63 @@ def generate_outreach(influencer):
     
     try:
         response = client.chat.completions.create(
-            model="llama3-70b-8192",
+            model="openai/gpt-oss-120b",
             messages=[{"role": "user", "content": prompt}],
             temperature=0.7
         )
         result = response.choices[0].message.content
-
+        
+        # Safely split the response based on our prompt formatting
         try:
             email_part = result.split("DM:")[0].replace("EMAIL:", "").strip()
             dm_part = result.split("DM:")[1].strip()
         except IndexError:
             email_part, dm_part = result, "Formatting error from LLM"
             
-        return email_part, dm_part
+        return influencer.name, email_part, dm_part
         
     except Exception as e:
-        print(f"Error generating message for {influencer['Influencer Name']}: {e}")
-        return "Error", "Error"
+        return influencer.name, "Error", f"Error: {e}"
 
 def personalize_messages():
-    print("Starting AI Personalization...")
+    print("Starting High-Speed AI Personalization...")
     
     if not os.path.exists(config.FILTERED_DATA):
         print("Error: Filtered data not found. Run filtering.py first.")
         return
         
     df = pd.read_csv(config.FILTERED_DATA)
+    # Only generate messages for influencers who passed the criteria
     passed_df = df[df['Status'] == 'Passed'].copy()
     
     if passed_df.empty:
         print("No passed influencers found. Check your filtering thresholds.")
         return
 
-    print(f"Generating custom messages for {len(passed_df)} qualified influencers. This will take a moment...")
+    total = len(passed_df)
+    print(f"Generating custom messages for {total} qualified influencers using multithreading...\n")
     
-    emails = []
-    dms = []
+    passed_df['Email Pitch'] = ""
+    passed_df['Instagram DM'] = ""
     
-    for index, row in passed_df.iterrows():
-        email_msg, dm_msg = generate_outreach(row)
-        emails.append(email_msg)
-        dms.append(dm_msg)
+    completed = 0
+    
+    # Process 5 API calls concurrently to speed up the loop without triggering Groq rate limits
+    with concurrent.futures.ThreadPoolExecutor(max_workers=5) as executor:
+        futures = {executor.submit(generate_outreach, row): row for index, row in passed_df.iterrows()}
         
-    passed_df['Email Pitch'] = emails
-    passed_df['Instagram DM'] = dms
-    
+        for future in concurrent.futures.as_completed(futures):
+            index, email_msg, dm_msg = future.result()
+            passed_df.at[index, 'Email Pitch'] = email_msg
+            passed_df.at[index, 'Instagram DM'] = dm_msg
+            
+            completed += 1
+            print(f"[{completed}/{total}] Generated messages for: {passed_df.at[index, 'Influencer Name']}")
+            
     os.makedirs(os.path.dirname(config.MESSAGES_DATA), exist_ok=True)
     passed_df.to_csv(config.MESSAGES_DATA, index=False)
     
-    print(f"Personalization complete! Saved to {config.MESSAGES_DATA}")
+    print(f"\nPersonalization complete! Saved to {config.MESSAGES_DATA}")
 
 if __name__ == "__main__":
     personalize_messages()
