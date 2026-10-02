@@ -13,7 +13,7 @@ def run_pipeline():
     
     print("\nSTEP 1: DISCOVERY")
     if not discover_influencers():
-        print("❌ Discovery module failed. Exiting pipeline safely to prevent cascading errors.")
+        print("Discovery module failed. Exiting pipeline safely to prevent cascading errors.")
         sys.exit(1)
     
     print("\nSTEP 2: ENRICHMENT")
