@@ -12,7 +12,9 @@ from src.sender import execute_sending_layer
 def run_pipeline():
     
     print("\nSTEP 1: DISCOVERY")
-    discover_influencers()
+    if not discover_influencers():
+        print("❌ Discovery module failed. Exiting pipeline safely to prevent cascading errors.")
+        sys.exit(1)
     
     print("\nSTEP 2: ENRICHMENT")
     enrich_data()
@@ -28,7 +30,7 @@ def run_pipeline():
     
     print("\nPipeline execution completed successfully!")
 
-    
+
 if __name__ == "__main__":
     try:
         run_pipeline()
