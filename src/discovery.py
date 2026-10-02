@@ -1,75 +1,80 @@
 import os
-import json
-import random
-from dotenv import load_dotenv
-from apify_client import ApifyClient
 import sys
+import json
+from apify_client import ApifyClient
+from dotenv import load_dotenv
 
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import config
 
 load_dotenv()
 
-def generate_mock_raw_data(niche, count=150):
-    """Fallback generator if the Apify API fails or runs out of credits."""
-    print("Generating mock dataset for resilience...")
-    mock_data = []
-    for i in range(count):
-        followers = random.randint(1000, 150000)
-        likes = int(followers * random.uniform(0.005, 0.08)) 
-        comments = int(likes * random.uniform(0.01, 0.1))
-        
-        has_email = random.choice([True, False])
-        
-        mock_data.append({
-            "username": f"{niche.lower()}_creator_{i}",
-            "fullName": f"Creator {i}",
-            "url": f"https://instagram.com/{niche.lower()}_creator_{i}",
-            "followersCount": followers,
-            "biography": f"Creating the best {niche} content. " + ("" if not has_email else f"Collabs: creator{i}@email.com"),
-            "publicEmail": f"creator{i}@business.com" if has_email and random.choice([True, False]) else None,
-            "latestPosts": [
-                {"likesCount": likes, "commentsCount": comments, "caption": f"Loving this new {niche} trend! #ad #sponsor"}
-            ]
-        })
-    return mock_data
 
 def discover_influencers():
-    print(f"Starting discovery for niche: {config.NICHE}...")
-    
+    print(f"Starting automated discovery for hashtags: {', '.join(config.HASHTAGS)}")
+
     apify_token = os.getenv("APIFY_API_TOKEN")
-    dataset_items = []
+    if not apify_token:
+        print("Error: APIFY_API_TOKEN not found in .env. Please add it.")
+        return False
+
+    client = ApifyClient(apify_token)
 
     try:
-        if not apify_token or apify_token == "your_apify_token_here":
-            raise ValueError("Invalid Apify Token")
-
-        client = ApifyClient(apify_token)
-        actor_id = "apify/instagram-scraper"
-        run_input = {
-            "search": config.NICHE,
-            "searchType": "hashtag",
-            "resultsLimit": 150,
+        print("Phase 1: Searching recent hashtag posts to find active creators")
+        search_input = {
+            "hashtags": config.HASHTAGS,
+            "resultsType": "posts",
+            "resultsLimit": 50,
         }
-        
-        print(f"Calling Apify Actor '{actor_id}'... (This takes 1-3 minutes)")
-        run = client.actor(actor_id).call(run_input=run_input)
-        
-        print("Fetching results from Apify dataset...")
-        dataset_items = list(client.dataset(run["defaultDatasetId"]).iterate_items())
-        
-        if not dataset_items:
-            raise Exception("Apify returned empty data.")
-            
-    except Exception as e:
-        print(f"\n[WARNING] Cloud scraping failed: {e}")
-        dataset_items = generate_mock_raw_data(config.NICHE)
+        search_run = client.actor("apify/instagram-hashtag-scraper").call(run_input=search_input)
+        search_items = client.dataset(search_run.default_dataset_id).list_items().items
 
-    os.makedirs(os.path.dirname(config.RAW_PROFILES), exist_ok=True)
-    with open(config.RAW_PROFILES, "w", encoding="utf-8") as f:
-        json.dump(dataset_items, f, indent=4)
-        
-    print(f"\nDiscovery complete! Saved {len(dataset_items)} raw profiles to {config.RAW_PROFILES}")
+        print(f"Posts returned: {len(search_items)}")
+        if not search_items:
+            print("Hashtag search returned no posts.")
+            return False
+
+        usernames = set()
+        for item in search_items:
+            username = item.get("ownerUsername")
+            if not username and isinstance(item.get("owner"), dict):
+                username = item["owner"].get("username")
+            if username:
+                usernames.add(username)
+
+        if not usernames:
+            print("Failed to find any creators from the hashtag search.")
+            return False
+
+        print(f"Found {len(usernames)} unique creators! Generating profile URLs...")
+        target_usernames = sorted(usernames)[:60]
+        profile_urls = [f"https://www.instagram.com/{user}/" for user in target_usernames]
+
+        print(f"Phase 2: Scraping {len(profile_urls)} profiles (This will take a few minutes)")
+        profile_input = {
+            "directUrls": profile_urls,
+            "resultsType": "details",
+        }
+
+        profile_run = client.actor("apify/instagram-scraper").call(run_input=profile_input)
+        profile_items = client.dataset(profile_run.default_dataset_id).list_items().items
+
+        if not profile_items:
+            print("Profile scrape returned no data.")
+            return False
+
+        os.makedirs(os.path.dirname(config.RAW_PROFILES), exist_ok=True)
+        with open(config.RAW_PROFILES, "w", encoding="utf-8") as f:
+            json.dump(profile_items, f, indent=4, ensure_ascii=False)
+
+        print(f"Automated Discovery complete! Saved {len(profile_items)} real profiles to {config.RAW_PROFILES}")
+        return True
+
+    except Exception as e:
+        print(f"\n[ERROR] Cloud scraping failed: {e}")
+        return False
+
 
 if __name__ == "__main__":
     discover_influencers()
