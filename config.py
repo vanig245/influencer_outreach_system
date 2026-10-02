@@ -1,12 +1,14 @@
 import os
 
-NICHE = "Technology"  
+HASHTAGS = ["techreviewer", "gadgetreview", "techtok", "smartphonereview", "techcreator", "tech"]
 MIN_FOLLOWERS = 5000
 MAX_FOLLOWERS = 100000
 MIN_ENGAGEMENT_RATE = 2.0
 
-BRAND_NAME = "EDXSO"
-BRAND_DESC = "Edxso is an education consulting and institutional growth partner dedicated to helping schools and educational organizations improve academic outcomes, strengthen leadership effectiveness, and achieve sustainable growth"
+BRAND_NAME = "Heins"
+BRAND_DESC = "Heins is an education consulting and institutional growth partner dedicated to helping schools and educational organizations improve academic outcomes, strengthen leadership effectiveness, and achieve sustainable growth"
+SENDER_NAME = "Alina"
+OFFER = "We offer a paid sponsorship for one short UGC video demonstrating our APIs, plus access to our platform and technical support while you create it."
 COLLAB_ANGLE = "UGC content demonstrating a real-world multi-agent workflow using our APIs."
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
