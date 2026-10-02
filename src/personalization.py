@@ -4,57 +4,49 @@ import pandas as pd
 from groq import Groq
 from dotenv import load_dotenv
 import concurrent.futures
-
-# Add root directory to path
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import config
 
 load_dotenv()
 client = Groq(api_key=os.getenv("GROQ_API_KEY"))
 
-def generate_outreach(influencer):
-    """Calls Groq API to generate an Email and DM for an influencer."""
+def generate_outreach(influencer, attempts=3):
+    name = str(influencer["Influencer Name"])
     prompt = f"""
-    You are an outreach manager for {config.BRAND_NAME}. 
-    Brand Context: {config.BRAND_DESC}
-    Collaboration Angle: {config.COLLAB_ANGLE}
+You are an outreach manager at {config.BRAND_NAME}, writing on behalf of {config.SENDER_NAME}.
+Brand context: {config.BRAND_DESC}
+Collaboration angle: {config.COLLAB_ANGLE}
+What we offer the creator (use only this, invent nothing else): {config.OFFER}
 
-    Write two personalized outreach messages for an influencer named {influencer['Influencer Name']} in the {influencer['Category / Niche']} niche. 
-    Their content themes are: {influencer['Content Themes']}.
+Creator: {name}
+Their bio and content themes: {influencer['Content Themes']}
 
-    Message 1: Email Collaboration Pitch
-    - Must be exactly 60-90 words.
-    - Include the value proposition and proposed collaboration.
+Write two messages.
+EMAIL: 65 to 85 words including greeting and sign-off. Greet by first name only if "{name}" looks like a real person's name, otherwise write "Hi there". Describe what they post in plain words, explain the collaboration and the offer, and sign off with "{config.SENDER_NAME}, {config.BRAND_NAME}".
+DM: 15 to 30 words, casual and personal, no sign-off.
 
-    Message 2: Instagram DM
-    - Must be exactly 15-30 words.
-    - Keep it short, natural, and reference their niche.
-    - Do not invent facts not provided.
-
-    Format your exact output as:
-    EMAIL: [Your email here]
-    DM: [Your DM here]
-    """
-    
-    try:
-        response = client.chat.completions.create(
-            model="openai/gpt-oss-120b",
-            messages=[{"role": "user", "content": prompt}],
-            temperature=0.7
-        )
-        result = response.choices[0].message.content
-        
-        # Safely split the response based on our prompt formatting
+Rules: no hashtags, no emojis, no invented facts, offers, prices or numbers, and do not claim to have watched specific videos.
+Output exactly:
+EMAIL: ...
+DM: ...
+"""
+    for _ in range(attempts):
         try:
+            response = client.chat.completions.create(
+                model="openai/gpt-oss-120b",
+                messages=[{"role": "user", "content": prompt}],
+                temperature=0.7,
+            )
+            result = response.choices[0].message.content
+            if "DM:" not in result:
+                continue
             email_part = result.split("DM:")[0].replace("EMAIL:", "").strip()
             dm_part = result.split("DM:")[1].strip()
-        except IndexError:
-            email_part, dm_part = result, "Formatting error from LLM"
-            
-        return influencer.name, email_part, dm_part
-        
-    except Exception as e:
-        return influencer.name, "Error", f"Error: {e}"
+            if 60 <= len(email_part.split()) <= 90 and 15 <= len(dm_part.split()) <= 30:
+                return influencer.name, email_part, dm_part
+        except Exception as e:
+            print(f"[warn] {name}: attempt failed: {e}")
+    return influencer.name, "Error", "Error: could not generate valid messages"
 
 def personalize_messages():
     print("Starting High-Speed AI Personalization...")
@@ -64,7 +56,6 @@ def personalize_messages():
         return
         
     df = pd.read_csv(config.FILTERED_DATA)
-    # Only generate messages for influencers who passed the criteria
     passed_df = df[df['Status'] == 'Passed'].copy()
     
     if passed_df.empty:
@@ -78,8 +69,6 @@ def personalize_messages():
     passed_df['Instagram DM'] = ""
     
     completed = 0
-    
-    # Process 5 API calls concurrently to speed up the loop without triggering Groq rate limits
     with concurrent.futures.ThreadPoolExecutor(max_workers=5) as executor:
         futures = {executor.submit(generate_outreach, row): row for index, row in passed_df.iterrows()}
         
